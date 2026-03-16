@@ -419,7 +419,7 @@
   /* CHART PANELS */
   .chart-wrap {
     position: relative;
-    height: 160px;
+    height: 220px;
   }
 
   /* DATA TABLE */
@@ -962,7 +962,8 @@ function makeLineChart(id, label, color, yLabel) {
         y: {
           ticks: { color: '#6b5a3e', font: { size: 9 } },
           grid: { color: 'rgba(245,158,11,0.07)' },
-          title: { display: false }
+          grace: '8%',   // adds 8% padding above/below data range
+          beginAtZero: false,
         }
       },
       plugins: {
@@ -1277,10 +1278,10 @@ function updateDashboard(readings) {
 
   // Rebuild charts from all readings (avoid duplicate pushes — just reset)
   const labels = allReadings.map(r => formatTs(r.timestamp));
-  const temps  = allReadings.map(r => r.temperature ?? null);
-  const hums   = allReadings.map(r => r.humidity ?? null);
-  const sounds = allReadings.map(r => r.sound_level ?? null);
-  const soils  = allReadings.map(r => r.soil_moisture ?? null);
+  const temps  = allReadings.map(r => r.temperature  || null);
+  const hums   = allReadings.map(r => r.humidity     || null);
+  const sounds = allReadings.map(r => r.sound_level  || null);
+  const soils  = allReadings.map(r => r.soil_moisture|| null);
 
   function setChart(chart, lbl, ...datasets) {
     chart.data.labels = lbl;
