@@ -29,6 +29,21 @@
     --font-display: 'Orbitron', monospace;
   }
 
+  body.light {
+    --amber: #b45309;
+    --amber-dim: #d97706;
+    --amber-glow: rgba(180,83,9,0.1);
+    --bg: #f5f0e8;
+    --surface: #fffdf7;
+    --surface2: #fef3c7;
+    --border: rgba(180,83,9,0.2);
+    --text: #44260a;
+    --text-dim: #92703a;
+  }
+
+  body.light::before { display: none; }
+  body.light::after  { display: none; }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
@@ -606,6 +621,23 @@
         <div class="connection-label">LINK</div>
         <div class="status-dot" id="link-dot"></div>
       </div>
+      <button id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" style="
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        font-family: var(--font-display);
+        font-size: 9px;
+        letter-spacing: 2px;
+        padding: 6px 12px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        transition: all 0.2s;
+      ">
+        <span id="theme-icon">☀</span>
+        <span id="theme-label">LIGHT</span>
+      </button>
     </div>
   </header>
 
@@ -713,13 +745,13 @@
     </div>
 
     <!-- ROVER PATH MAP -->
-    <div class="panel map-panel" style="min-height:300px;">
+    <div class="panel map-panel" style="min-height:300px;grid-column:2;grid-row:2/5;">
       <div class="panel-title">ROVER TRAJECTORY MAP</div>
       <canvas id="path-canvas" width="400" height="280"></canvas>
     </div>
 
     <!-- SOUND CHART -->
-    <div class="panel">
+    <div class="panel" style="grid-column:3;">
       <div class="panel-title">SOUND LEVEL OVER TIME</div>
       <div class="chart-wrap">
         <canvas id="chart-sound"></canvas>
@@ -727,10 +759,18 @@
     </div>
 
     <!-- SOIL CHART -->
-    <div class="panel">
+    <div class="panel" style="grid-column:3;">
       <div class="panel-title">SOIL MOISTURE OVER TIME</div>
       <div class="chart-wrap">
         <canvas id="chart-soil"></canvas>
+      </div>
+    </div>
+
+    <!-- ULTRASONIC CHART -->
+    <div class="panel" style="grid-column:3;">
+      <div class="panel-title">ULTRASONIC DISTANCE OVER TIME</div>
+      <div class="chart-wrap">
+        <canvas id="chart-ultra"></canvas>
       </div>
     </div>
 
@@ -982,8 +1022,9 @@ function makeLineChart(id, label, color, yLabel) {
 
 const chartTemp  = makeLineChart('chart-temp',  'Temp (°C)',    'rgb(239,68,68)',    '°C');
 const chartHum   = makeLineChart('chart-hum',   'Humidity (%)', 'rgb(56,189,248)',   '%');
-const chartSound = makeLineChart('chart-sound', 'Sound Level', 'rgb(168,85,247)', 'raw');
-const chartSoil  = makeLineChart('chart-soil',  'Soil Moisture','rgb(34,197,94)',  'adc');
+const chartSound = makeLineChart('chart-sound', 'Sound Level',        'rgb(168,85,247)', 'raw');
+const chartSoil  = makeLineChart('chart-soil',  'Soil Moisture',       'rgb(34,197,94)',  'adc');
+const chartUltra = makeLineChart('chart-ultra', 'Ultrasonic Dist (cm)','rgb(251,146,60)', 'cm');
 
 const MAX_POINTS = 50;
 function pushChart(chart, label, ...values) {
@@ -1007,8 +1048,12 @@ function drawPath() {
   const W = pathCanvas.width, H = pathCanvas.height;
   pathCtx.clearRect(0, 0, W, H);
 
+  const isLight = document.body.classList.contains('light');
+  const gridCol = isLight ? 'rgba(180,83,9,0.07)' : 'rgba(245,158,11,0.07)';
+  const axisCol = isLight ? 'rgba(180,83,9,0.2)'  : 'rgba(245,158,11,0.2)';
+
   // Grid
-  pathCtx.strokeStyle = 'rgba(245,158,11,0.07)';
+  pathCtx.strokeStyle = isLight ? 'rgba(180,83,9,0.07)' : 'rgba(245,158,11,0.07)';
   pathCtx.lineWidth = 0.5;
   for (let x = 0; x <= W; x += 40) {
     pathCtx.beginPath(); pathCtx.moveTo(x, 0); pathCtx.lineTo(x, H); pathCtx.stroke();
@@ -1017,7 +1062,7 @@ function drawPath() {
     pathCtx.beginPath(); pathCtx.moveTo(0, y); pathCtx.lineTo(W, y); pathCtx.stroke();
   }
   // Axes
-  pathCtx.strokeStyle = 'rgba(245,158,11,0.2)';
+  pathCtx.strokeStyle = axisCol;
   pathCtx.lineWidth = 1;
   pathCtx.beginPath(); pathCtx.moveTo(W/2,0); pathCtx.lineTo(W/2,H); pathCtx.stroke();
   pathCtx.beginPath(); pathCtx.moveTo(0,H/2); pathCtx.lineTo(W,H/2); pathCtx.stroke();
@@ -1278,10 +1323,11 @@ function updateDashboard(readings) {
 
   // Rebuild charts from all readings (avoid duplicate pushes — just reset)
   const labels = allReadings.map(r => formatTs(r.timestamp));
-  const temps  = allReadings.map(r => r.temperature  || null);
-  const hums   = allReadings.map(r => r.humidity     || null);
-  const sounds = allReadings.map(r => r.sound_level  || null);
-  const soils  = allReadings.map(r => r.soil_moisture|| null);
+  const temps  = allReadings.map(r => r.temperature   || null);
+  const hums   = allReadings.map(r => r.humidity      || null);
+  const sounds = allReadings.map(r => r.sound_level   || null);
+  const soils  = allReadings.map(r => r.soil_moisture || null);
+  const ultras = allReadings.map(r => r.ultrasonic    || null);
 
   function setChart(chart, lbl, ...datasets) {
     chart.data.labels = lbl;
@@ -1292,6 +1338,7 @@ function updateDashboard(readings) {
   setChart(chartHum,   labels, hums);
   setChart(chartSound, labels, sounds);
   setChart(chartSoil,  labels, soils);
+  setChart(chartUltra, labels, ultras);
 
   // Path map
   pathPoints = allReadings
@@ -1854,6 +1901,58 @@ let _soundLaptopData = null;
 function tryRenderSound() {
   if (_soundRoverData || _soundLaptopData) updateSoundExperiment(_soundRoverData, _soundLaptopData);
 }
+
+// ─── THEME TOGGLE ─────────────────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  document.getElementById('theme-icon').textContent  = isLight ? '🌙' : '☀';
+  document.getElementById('theme-label').textContent = isLight ? 'DARK' : 'LIGHT';
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+
+  // Update chart colors to match theme
+  const gridColor    = isLight ? 'rgba(180,83,9,0.08)'  : 'rgba(245,158,11,0.07)';
+  const tickColor    = isLight ? '#92703a'               : '#6b5a3e';
+  const tooltipBg    = isLight ? '#fffdf7'               : '#0d1117';
+  const tooltipBorder= isLight ? 'rgba(180,83,9,0.3)'   : 'rgba(245,158,11,0.3)';
+  const tooltipTitle = isLight ? '#b45309'               : '#f59e0b';
+  const tooltipBody  = isLight ? '#44260a'               : '#e2c98a';
+
+  [chartTemp, chartHum, chartSound, chartSoil, chartUltra].forEach(chart => {
+    chart.options.scales.x.ticks.color = tickColor;
+    chart.options.scales.x.grid.color  = gridColor;
+    chart.options.scales.y.ticks.color = tickColor;
+    chart.options.scales.y.grid.color  = gridColor;
+    chart.options.plugins.tooltip.backgroundColor = tooltipBg;
+    chart.options.plugins.tooltip.borderColor     = tooltipBorder;
+    chart.options.plugins.tooltip.titleColor      = tooltipTitle;
+    chart.options.plugins.tooltip.bodyColor       = tooltipBody;
+    chart.update('none');
+  });
+
+  [calibScatterChart, calibErrorChart, soundExpChart, soundScatChart].forEach(chart => {
+    if (!chart) return;
+    Object.values(chart.options.scales).forEach(axis => {
+      if (axis.ticks) axis.ticks.color = tickColor;
+      if (axis.grid)  axis.grid.color  = gridColor;
+      if (axis.title) axis.title.color = tickColor;
+    });
+    if (chart.options.plugins?.tooltip) {
+      chart.options.plugins.tooltip.backgroundColor = tooltipBg;
+      chart.options.plugins.tooltip.borderColor     = tooltipBorder;
+      chart.options.plugins.tooltip.titleColor      = tooltipTitle;
+      chart.options.plugins.tooltip.bodyColor       = tooltipBody;
+    }
+    chart.update('none');
+  });
+
+  // Path canvas redraw
+  drawPath();
+}
+
+// Restore saved theme on load
+window.addEventListener('DOMContentLoaded', () => {
+  if (localStorage.getItem('theme') === 'light') toggleTheme();
+});
 
 // ─── RESIZE PATH CANVAS ───────────────────────────────────────────────
 function resizePath() {
