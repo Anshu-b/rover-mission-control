@@ -1,0 +1,1868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROVER MK-I // MISSION CONTROL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- config.js sets window.FIREBASE_CONFIG — keep this file in .gitignore -->
+<script src="./config.js" onerror="console.warn('config.js not found — use manual connect or demo mode')"></script>
+<style>
+  :root {
+    --amber: #f59e0b;
+    --amber-dim: #78491a;
+    --amber-glow: rgba(245,158,11,0.15);
+    --red: #ef4444;
+    --green: #22c55e;
+    --blue: #38bdf8;
+    --bg: #07090d;
+    --surface: #0d1117;
+    --surface2: #141b25;
+    --border: rgba(245,158,11,0.2);
+    --text: #e2c98a;
+    --text-dim: #6b5a3e;
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-display: 'Orbitron', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Scan lines overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* Noise texture */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 99;
+    opacity: 0.4;
+  }
+
+  /* CONFIG OVERLAY */
+  #config-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(7,9,13,0.97);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 24px;
+  }
+  #config-overlay h2 {
+    font-family: var(--font-display);
+    font-size: 22px;
+    color: var(--amber);
+    letter-spacing: 4px;
+    text-align: center;
+  }
+  #config-overlay p {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+    max-width: 480px;
+    line-height: 1.8;
+  }
+  #config-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    width: 100%;
+    max-width: 520px;
+  }
+  #config-form input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 10px 14px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s;
+  }
+  #config-form input:focus { border-color: var(--amber); }
+  #config-form input::placeholder { color: var(--text-dim); }
+  #config-form input.full { grid-column: 1 / -1; }
+  #connect-btn {
+    background: transparent;
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing: 3px;
+    padding: 12px 40px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+  }
+  #connect-btn:hover { background: var(--amber-glow); }
+  #config-error { color: var(--red); font-size: 11px; }
+
+  /* MAIN LAYOUT */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+
+  /* HEADER */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: relative;
+  }
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+  }
+  .logo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .logo-main {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--amber);
+    letter-spacing: 6px;
+  }
+  .logo-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 4px;
+  }
+  .header-stats {
+    display: flex;
+    gap: 32px;
+    align-items: center;
+  }
+  .hstat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .hstat-label { font-size: 9px; color: var(--text-dim); letter-spacing: 2px; }
+  .hstat-value { font-size: 14px; color: var(--amber); }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+  .status-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .connection-wrap { display: flex; align-items: center; gap: 10px; }
+  .connection-label { font-size: 10px; color: var(--text-dim); letter-spacing: 2px; }
+
+  /* TICKER */
+  .ticker {
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 28px;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    display: flex;
+    gap: 40px;
+    overflow: hidden;
+  }
+  .ticker span { white-space: nowrap; }
+  .ticker .val { color: var(--amber); margin-left: 6px; }
+
+  /* GRID */
+  .grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 240px 1fr 1fr;
+    grid-template-rows: auto auto 1fr;
+    gap: 1px;
+    background: var(--border);
+    padding: 0;
+  }
+
+  /* PANELS */
+  .panel {
+    background: var(--surface);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--amber-dim), var(--amber), var(--amber-dim));
+    opacity: 0.4;
+  }
+  .panel-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-title::before {
+    content: '//';
+    color: var(--amber);
+    opacity: 0.6;
+  }
+
+  /* STATUS SIDEBAR */
+  .sidebar {
+    grid-column: 1;
+    grid-row: 1 / 4;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: transparent;
+    padding: 0;
+  }
+  .sidebar-inner {
+    background: var(--surface);
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+  }
+  .sidebar-inner::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--amber-dim), var(--amber), var(--amber-dim));
+    opacity: 0.4;
+  }
+  .sidebar-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .sidebar-title::before { content: '//'; color: var(--amber); opacity: 0.6; }
+
+  .metric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(245,158,11,0.08);
+  }
+  .metric:last-child { border-bottom: none; padding-bottom: 0; }
+  .metric-label {
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .metric-value {
+    font-size: 28px;
+    color: var(--amber);
+    line-height: 1;
+    transition: color 0.3s;
+  }
+  .metric-value.alert { color: var(--red); }
+  .metric-unit {
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .metric-bar {
+    height: 2px;
+    background: rgba(245,158,11,0.1);
+    margin-top: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+  .metric-bar-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: var(--amber);
+    transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 0 0 6px var(--amber);
+  }
+
+  /* DOMAIN / MODE BADGE */
+  .domain-display {
+    margin-top: 8px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .domain-label { font-size: 9px; letter-spacing: 3px; color: var(--text-dim); }
+  .domain-value {
+    font-family: var(--font-display);
+    font-size: 16px;
+    color: var(--amber);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    transition: all 0.3s;
+  }
+  .mode-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border: 1px solid;
+    width: fit-content;
+  }
+  .mode-badge.idle { border-color: var(--text-dim); color: var(--text-dim); }
+  .mode-badge.active { border-color: var(--green); color: var(--green); box-shadow: 0 0 8px rgba(34,197,94,0.2); }
+  .mode-badge.scanning { border-color: var(--blue); color: var(--blue); }
+  .mode-badge.charging { border-color: var(--amber); color: var(--amber); }
+  .mode-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* HEADING COMPASS */
+  .compass-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .compass {
+    width: 48px; height: 48px;
+    border: 1px solid var(--amber-dim);
+    border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .compass-needle {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 2px;
+    height: 40%;
+    background: var(--amber);
+    transform-origin: bottom center;
+    transform: translateX(-50%) translateY(-100%) rotate(0deg);
+    transition: transform 0.5s ease;
+    box-shadow: 0 0 4px var(--amber);
+  }
+  .compass-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 4px; height: 4px;
+    background: var(--amber);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .compass-label { font-size: 9px; color: var(--text-dim); }
+  .compass-deg { font-size: 18px; color: var(--amber); }
+
+  /* PATH MAP */
+  .path-panel {
+    grid-column: 1;
+    grid-row: 1;
+    /* overridden by placement */
+  }
+  #path-canvas {
+    width: 100%;
+    aspect-ratio: 1;
+    display: block;
+  }
+
+  /* CHART PANELS */
+  .chart-wrap {
+    position: relative;
+    height: 160px;
+  }
+
+  /* DATA TABLE */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .data-table th {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-display);
+  }
+  .data-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(245,158,11,0.05);
+    color: var(--text);
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table .ts { color: var(--text-dim); font-size: 10px; }
+  .data-table .floor { color: var(--blue); }
+  .data-table .mode-t { color: var(--amber); }
+
+  /* EVENTS */
+  .event-list { display: flex; flex-direction: column; gap: 6px; }
+  .event-item {
+    padding: 8px 12px;
+    border-left: 2px solid var(--amber-dim);
+    background: var(--surface2);
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: slide-in 0.3s ease;
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .event-item .ev-time { color: var(--text-dim); font-size: 9px; white-space: nowrap; }
+  .event-item .ev-text { color: var(--text); flex: 1; }
+
+  /* ULTRASONIC / SOUND */
+  .gauge-row { display: flex; gap: 12px; }
+  .gauge {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .gauge-label { font-size: 9px; letter-spacing: 2px; color: var(--text-dim); }
+  .gauge-val { font-size: 20px; color: var(--amber); }
+  .gauge-unit { font-size: 9px; color: var(--text-dim); }
+
+  /* RESPONSIVE GRID LAYOUT */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr 1fr;
+    grid-template-rows: auto;
+    gap: 1px;
+    background: rgba(245,158,11,0.1);
+    flex: 1;
+  }
+
+  /* Span helpers */
+  .span-row-2 { grid-row: span 2; }
+  .span-col-2 { grid-column: span 2; }
+
+  .panel.map-panel { display: flex; flex-direction: column; }
+  #path-canvas { flex: 1; }
+
+  /* BLINK */
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  .cursor::after {
+    content: '_';
+    animation: blink 1s step-end infinite;
+    color: var(--amber);
+  }
+
+  /* NO DATA */
+  .no-data {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 2px;
+  }
+
+  /* ANIMATE VALUE CHANGE */
+  @keyframes flash-value {
+    0% { color: #fff; text-shadow: 0 0 10px var(--amber); }
+    100% { color: var(--amber); text-shadow: none; }
+  }
+  .flash { animation: flash-value 0.6s ease-out; }
+
+  @keyframes alert-pulse {
+    0%, 100% { background: #1a0505; }
+    50% { background: #200808; }
+  }
+  @keyframes alert-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .ev-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 12px;
+    border-left: 2px solid var(--amber-dim);
+    background: var(--surface2);
+    font-size: 11px;
+    animation: slide-in 0.3s ease;
+  }
+  .ev-row.floor_change  { border-left-color: #38bdf8; }
+  .ev-row.probe_reading { border-left-color: #22c55e; }
+  .ev-row.mode_change   { border-left-color: var(--amber); }
+  .ev-row.sound_alert   { border-left-color: #ef4444; background: rgba(239,68,68,0.07); }
+  .ev-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+  .ev-body { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .ev-type { font-family: 'Orbitron', monospace; font-size: 9px; letter-spacing: 3px; }
+  .ev-type.floor_change  { color: #38bdf8; }
+  .ev-type.probe_reading { color: #22c55e; }
+  .ev-type.mode_change   { color: var(--amber); }
+  .ev-type.sound_alert   { color: #ef4444; }
+  .ev-details { color: var(--text-dim); font-size: 10px; }
+  .ev-ts { font-size: 9px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<!-- CONFIG OVERLAY -->
+<div id="config-overlay">
+  <div style="font-family:'Orbitron',monospace;font-size:28px;font-weight:900;color:#f59e0b;letter-spacing:8px;">ROVER MK-I</div>
+  <div class="logo-sub" style="font-family:'Share Tech Mono',monospace;font-size:11px;color:#6b5a3e;letter-spacing:5px;">MISSION CONTROL // CONNECT TO DATABASE</div>
+  <p>Enter your Firebase Realtime Database configuration to begin live telemetry stream.</p>
+  <div id="config-form">
+    <input class="full" id="fb-apikey" placeholder="apiKey" />
+    <input class="full" id="fb-databaseurl" placeholder="databaseURL  (https://your-project.firebaseio.com)" />
+    <input id="fb-projectid" placeholder="projectId" />
+    <input id="fb-appid" placeholder="appId" />
+    <input id="fb-authdomain" placeholder="authDomain (optional)" />
+    <input id="fb-storagebucket" placeholder="storageBucket (optional)" />
+  </div>
+  <p id="config-error"></p>
+  <p id="autoconnect-msg" style="display:none;color:#22c55e;font-size:11px;letter-spacing:2px;">// config.js DETECTED — AUTO-CONNECTING...</p>
+  <button id="connect-btn" onclick="connectFirebase()">ESTABLISH LINK</button>
+  <p style="margin-top:8px;font-size:10px;">Or <span style="color:#f59e0b;cursor:pointer;text-decoration:underline" onclick="loadDemo()">load demo with mock data</span> to preview the dashboard.</p>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <header>
+    <div class="logo">
+      <div class="logo-main">ROVER MK-I</div>
+      <div class="logo-sub">AUTONOMOUS SURFACE EXPLORER // LIVE TELEMETRY</div>
+    </div>
+    <div class="header-stats">
+      <div class="hstat">
+        <div class="hstat-label">READINGS</div>
+        <div class="hstat-value" id="h-readings">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">LAST PING</div>
+        <div class="hstat-value" id="h-lastping">—</div>
+      </div>
+      <div class="hstat">
+        <div class="hstat-label">UPTIME</div>
+        <div class="hstat-value" id="h-uptime">00:00:00</div>
+      </div>
+      <div class="connection-wrap">
+        <div class="connection-label">LINK</div>
+        <div class="status-dot" id="link-dot"></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="ticker" id="ticker">
+    <span>TEMP: <span class="val" id="t-temp">—</span></span>
+    <span>HUMIDITY: <span class="val" id="t-hum">—</span></span>
+    <span>SOIL MOISTURE: <span class="val" id="t-soil">—</span></span>
+    <span>SOUND: <span class="val" id="t-sound">—</span></span>
+    <span>ULTRASONIC: <span class="val" id="t-ultra">—</span></span>
+    <span>POS: <span class="val" id="t-pos">—</span></span>
+    <span>FLOOR: <span class="val" id="t-floor">—</span></span>
+    <span>MODE: <span class="val" id="t-mode">—</span></span>
+  </div>
+
+  <!-- WINDSTORM ALERT BANNER -->
+  <div id="windstorm-banner" style="display:none;background:#1a0505;border-bottom:1px solid #ef4444;padding:10px 28px;display:none;align-items:center;gap:16px;animation:alert-pulse 1s ease-in-out infinite;">
+    <div style="font-size:18px;">⚠</div>
+    <div style="flex:1;">
+      <div style="font-family:'Orbitron',monospace;font-size:13px;color:#ef4444;letter-spacing:4px;font-weight:700;">WINDSTORM ALERT — RETURNING TO HOME BASE</div>
+      <div style="font-size:10px;color:#7f3535;letter-spacing:2px;margin-top:2px;">SOUND THRESHOLD EXCEEDED // AUTONOMOUS RETURN SEQUENCE INITIATED</div>
+    </div>
+    <div id="alert-time" style="font-size:10px;color:#7f3535;letter-spacing:2px;"></div>
+    <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 12px #ef4444;animation:alert-dot 0.5s step-end infinite;"></div>
+  </div>
+
+  <div class="main-grid">
+
+    <!-- SIDEBAR: Status Metrics -->
+    <div class="panel span-row-2" style="display:flex;flex-direction:column;gap:16px;grid-row:1/3;">
+      <div class="panel-title">TELEMETRY STATUS</div>
+
+      <div class="domain-display">
+        <div class="domain-label">SURFACE DOMAIN</div>
+        <div class="domain-value" id="s-floor">UNKNOWN</div>
+      </div>
+
+      <div class="domain-display" style="padding:10px 14px;">
+        <div class="domain-label">ROVER MODE</div>
+        <div class="mode-badge idle" id="s-mode-badge">
+          <div class="mode-dot"></div>
+          <span id="s-mode-text">IDLE</span>
+        </div>
+      </div>
+
+      <div class="metric">
+        <div class="metric-label">TEMPERATURE</div>
+        <div class="metric-value" id="s-temp">—</div>
+        <div class="metric-unit">DEGREES CELSIUS</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="bar-temp" style="width:0%"></div></div>
+      </div>
+
+      <div class="metric">
+        <div class="metric-label">HUMIDITY</div>
+        <div class="metric-value" id="s-hum">—</div>
+        <div class="metric-unit">PERCENT %</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="bar-hum" style="width:0%"></div></div>
+      </div>
+
+      <div class="metric">
+        <div class="metric-label">SOIL MOISTURE</div>
+        <div class="metric-value" id="s-soil">—</div>
+        <div class="metric-unit">RAW ADC VALUE</div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="bar-soil" style="width:0%"></div></div>
+      </div>
+
+      <div class="compass-wrap">
+        <div class="compass">
+          <div class="compass-needle" id="compass-needle"></div>
+          <div class="compass-center"></div>
+        </div>
+        <div>
+          <div class="compass-label">HEADING</div>
+          <div class="compass-deg"><span id="s-heading">—</span>°</div>
+        </div>
+      </div>
+
+      <div class="gauge-row">
+        <div class="gauge">
+          <div class="gauge-label">ULTRASONIC</div>
+          <div class="gauge-val" id="s-ultra">—</div>
+          <div class="gauge-unit">CM</div>
+        </div>
+        <div class="gauge">
+          <div class="gauge-label">SOUND LVL</div>
+          <div class="gauge-val" id="s-sound">—</div>
+          <div class="gauge-unit">RAW</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TEMPERATURE CHART -->
+    <div class="panel">
+      <div class="panel-title">TEMPERATURE OVER TIME</div>
+      <div class="chart-wrap">
+        <canvas id="chart-temp"></canvas>
+      </div>
+    </div>
+
+    <!-- HUMIDITY CHART -->
+    <div class="panel">
+      <div class="panel-title">HUMIDITY OVER TIME</div>
+      <div class="chart-wrap">
+        <canvas id="chart-hum"></canvas>
+      </div>
+    </div>
+
+    <!-- ROVER PATH MAP -->
+    <div class="panel map-panel" style="min-height:300px;">
+      <div class="panel-title">ROVER TRAJECTORY MAP</div>
+      <canvas id="path-canvas" width="400" height="280"></canvas>
+    </div>
+
+    <!-- SOUND CHART -->
+    <div class="panel">
+      <div class="panel-title">SOUND LEVEL OVER TIME</div>
+      <div class="chart-wrap">
+        <canvas id="chart-sound"></canvas>
+      </div>
+    </div>
+
+    <!-- SOIL CHART -->
+    <div class="panel">
+      <div class="panel-title">SOIL MOISTURE OVER TIME</div>
+      <div class="chart-wrap">
+        <canvas id="chart-soil"></canvas>
+      </div>
+    </div>
+
+    <!-- RECENT READINGS TABLE -->
+    <div class="panel span-col-2" style="grid-column:2/4;overflow:auto;max-height:280px;">
+      <div class="panel-title">RECENT READINGS LOG</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>TIMESTAMP</th>
+            <th>FLOOR</th>
+            <th>MODE</th>
+            <th>TEMP °C</th>
+            <th>HUM %</th>
+            <th>SOIL</th>
+            <th>SOUND</th>
+            <th>ULTRA CM</th>
+            <th>X</th>
+            <th>Y</th>
+            <th>HDG°</th>
+          </tr>
+        </thead>
+        <tbody id="readings-tbody">
+          <tr><td colspan="11" class="no-data">AWAITING DATA STREAM...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- EVENTS FEED -->
+    <div class="panel" style="grid-column:2/4;overflow:auto;max-height:220px;">
+      <div class="panel-title">MISSION EVENTS LOG</div>
+      <div id="events-feed" style="display:flex;flex-direction:column;gap:6px;">
+        <div class="no-data" style="height:60px;">AWAITING EVENTS...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CALIBRATION SECTION -->
+  <div id="calibration-section" style="border-top:1px solid rgba(245,158,11,0.15);background:var(--surface);padding:24px 28px;display:flex;flex-direction:column;gap:20px;">
+
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:32px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:260px;">
+        <div style="font-family:'Orbitron',monospace;font-size:11px;letter-spacing:4px;color:var(--amber);margin-bottom:10px;">// SENSOR CALIBRATION LAB</div>
+        <p style="font-size:11px;color:var(--text-dim);line-height:1.9;max-width:520px;">
+          Manual ground-truth tests run before deployment. The rover is placed at known distances and the ultrasonic sensor records multiple readings per position.
+          We compare <span style="color:var(--amber)">actual distance</span> vs <span style="color:#38bdf8">sensor average</span> to measure accuracy, drift, and systematic error.
+          Ideal calibration sits on the <span style="color:rgba(245,158,11,0.4)">perfect diagonal</span> (actual = measured).
+        </p>
+      </div>
+      <div id="calib-stats" style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(245,158,11,0.1);">
+
+      <!-- SCATTER PLOT -->
+      <div style="background:var(--surface2);padding:20px;">
+        <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:14px;">// ACTUAL vs MEASURED (SCATTER + LINE OF BEST FIT)</div>
+        <div style="height:260px;position:relative;">
+          <canvas id="chart-calib-scatter"></canvas>
+        </div>
+      </div>
+
+      <!-- ERROR BAR CHART -->
+      <div style="background:var(--surface2);padding:20px;">
+        <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:14px;">// ERROR PER DISTANCE (CM + PERCENT)</div>
+        <div style="height:260px;position:relative;">
+          <canvas id="chart-calib-error"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- PER-DISTANCE BREAKDOWN TABLE -->
+    <div style="overflow-x:auto;">
+      <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:12px;">// PER-DISTANCE BREAKDOWN</div>
+      <table class="data-table" id="calib-table">
+        <thead>
+          <tr>
+            <th>ACTUAL (CM)</th>
+            <th>AVG READING (CM)</th>
+            <th>ERROR (CM)</th>
+            <th>ERROR (%)</th>
+            <th>READINGS</th>
+            <th>SPREAD (MAX–MIN)</th>
+            <th>ACCURACY RATING</th>
+          </tr>
+        </thead>
+        <tbody id="calib-tbody">
+          <tr><td colspan="7" class="no-data">AWAITING CALIBRATION DATA...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SOUND EXPERIMENT SECTION -->
+  <div id="sound-experiment-section" style="border-top:1px solid rgba(245,158,11,0.15);background:var(--surface);padding:24px 28px;display:flex;flex-direction:column;gap:20px;">
+
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:32px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:260px;">
+        <div style="font-family:'Orbitron',monospace;font-size:11px;letter-spacing:4px;color:var(--amber);margin-bottom:10px;">// SOUND SENSOR EXPERIMENT</div>
+        <p style="font-size:11px;color:var(--text-dim);line-height:1.9;max-width:520px;">
+          Cross-referencing the rover's raw ADC sound readings against a laptop microphone recording dB levels simultaneously across trials 1–7.
+          <span style="color:var(--amber)">Rover sensor</span> outputs raw analog values; <span style="color:#38bdf8">laptop mic</span> gives calibrated dBFS.
+          Since the units differ, we look for <span style="color:#22c55e">trend correlation</span> — do both sensors agree on relative loudness across trials?
+          Note: laptop dB values are on the dBFS scale (0 = max, negative = quieter).
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:14px;">
+          <div style="padding:8px 12px;border:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:flex-start;">
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--amber);min-width:20px;padding-top:1px;">T1</div>
+            <div style="font-size:13px;">🔇</div>
+            <div><div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--text);margin-bottom:2px;">SILENCE</div><div style="font-size:10px;color:var(--text-dim);line-height:1.5;">Baseline — no sound source, ambient room noise only</div></div>
+          </div>
+          <div style="padding:8px 12px;border:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:flex-start;">
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--amber);min-width:20px;padding-top:1px;">T2</div>
+            <div style="font-size:13px;">📱</div>
+            <div><div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--text);margin-bottom:2px;">STATIC 1/4 VOL</div><div style="font-size:10px;color:var(--text-dim);line-height:1.5;">Phone playing white noise at quarter volume</div></div>
+          </div>
+          <div style="padding:8px 12px;border:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:flex-start;">
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--amber);min-width:20px;padding-top:1px;">T3</div>
+            <div style="font-size:13px;">📱</div>
+            <div><div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--text);margin-bottom:2px;">STATIC 1/2 VOL</div><div style="font-size:10px;color:var(--text-dim);line-height:1.5;">Phone playing white noise at half volume</div></div>
+          </div>
+          <div style="padding:8px 12px;border:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:flex-start;">
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--amber);min-width:20px;padding-top:1px;">T4</div>
+            <div style="font-size:13px;">🎵</div>
+            <div><div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--text);margin-bottom:2px;">CHAMPION</div><div style="font-size:10px;color:var(--text-dim);line-height:1.5;">Champion by Kanye West — full music playback</div></div>
+          </div>
+          <div style="padding:8px 12px;border:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:flex-start;">
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--amber);min-width:20px;padding-top:1px;">T5</div>
+            <div style="font-size:13px;">💨</div>
+            <div><div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--text);margin-bottom:2px;">BLOWING 1</div><div style="font-size:10px;color:var(--text-dim);line-height:1.5;">Blowing directly onto the sensor</div></div>
+          </div>
+          <div style="padding:8px 12px;border:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:flex-start;">
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--amber);min-width:20px;padding-top:1px;">T6</div>
+            <div style="font-size:13px;">💨</div>
+            <div><div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--text);margin-bottom:2px;">BLOWING 2</div><div style="font-size:10px;color:var(--text-dim);line-height:1.5;">Second blow — sustained airflow</div></div>
+          </div>
+          <div style="padding:8px 12px;border:1px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:flex-start;">
+            <div style="font-family:'Orbitron',monospace;font-size:10px;color:var(--amber);min-width:20px;padding-top:1px;">T7</div>
+            <div style="font-size:13px;">👏</div>
+            <div><div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;color:var(--text);margin-bottom:2px;">CLAPPING</div><div style="font-size:10px;color:var(--text-dim);line-height:1.5;">Single sharp clap near the sensor</div></div>
+          </div>
+        </div>
+      </div>
+      <div id="sound-stats" style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:1px;background:rgba(245,158,11,0.1);">
+
+      <!-- DUAL AXIS LINE CHART -->
+      <div style="background:var(--surface2);padding:20px;">
+        <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:14px;">// ROVER ADC vs LAPTOP dB PER TRIAL (TRIALS 1–7)</div>
+        <div style="height:260px;position:relative;">
+          <canvas id="chart-sound-exp"></canvas>
+        </div>
+      </div>
+
+      <!-- SCATTER CORRELATION -->
+      <div style="background:var(--surface2);padding:20px;">
+        <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:14px;">// CORRELATION SCATTER</div>
+        <div style="height:260px;position:relative;">
+          <canvas id="chart-sound-scatter"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TRIALS TABLE -->
+    <div style="overflow-x:auto;">
+      <div style="font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;color:var(--text-dim);margin-bottom:12px;">// TRIAL BREAKDOWN</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>TRIAL</th>
+            <th>ROVER ADC</th>
+            <th>LAPTOP dB</th>
+            <th>ROVER TIMESTAMP</th>
+            <th>LAPTOP TIMESTAMP</th>
+            <th>AGREEMENT</th>
+          </tr>
+        </thead>
+        <tbody id="sound-tbody">
+          <tr><td colspan="6" class="no-data">AWAITING SOUND EXPERIMENT DATA...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── CHART DEFAULTS ───────────────────────────────────────────────────
+Chart.defaults.color = '#6b5a3e';
+Chart.defaults.borderColor = 'rgba(245,158,11,0.1)';
+Chart.defaults.font.family = "'Share Tech Mono', monospace";
+Chart.defaults.font.size = 10;
+
+function makeLineChart(id, label, color, yLabel) {
+  return new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label,
+        data: [],
+        borderColor: color,
+        backgroundColor: color.replace(')', ', 0.05)').replace('rgb', 'rgba'),
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointBackgroundColor: color,
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      scales: {
+        x: {
+          ticks: { maxTicksLimit: 8, color: '#6b5a3e', font: { size: 9 } },
+          grid: { color: 'rgba(245,158,11,0.05)' }
+        },
+        y: {
+          ticks: { color: '#6b5a3e', font: { size: 9 } },
+          grid: { color: 'rgba(245,158,11,0.07)' },
+          title: { display: false }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d1117',
+          borderColor: 'rgba(245,158,11,0.3)',
+          borderWidth: 1,
+          titleColor: '#f59e0b',
+          bodyColor: '#e2c98a',
+        }
+      }
+    }
+  });
+}
+
+const chartTemp  = makeLineChart('chart-temp',  'Temp (°C)',    'rgb(239,68,68)',    '°C');
+const chartHum   = makeLineChart('chart-hum',   'Humidity (%)', 'rgb(56,189,248)',   '%');
+const chartSound = makeLineChart('chart-sound', 'Sound Level', 'rgb(168,85,247)', 'raw');
+const chartSoil  = makeLineChart('chart-soil',  'Soil Moisture','rgb(34,197,94)',  'adc');
+
+const MAX_POINTS = 50;
+function pushChart(chart, label, ...values) {
+  chart.data.labels.push(label);
+  chart.data.datasets.forEach((ds, i) => ds.data.push(values[i]));
+  if (chart.data.labels.length > MAX_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(ds => ds.data.shift());
+  }
+  chart.update('none');
+}
+
+// ─── PATH MAP ─────────────────────────────────────────────────────────
+const pathCanvas = document.getElementById('path-canvas');
+const pathCtx = pathCanvas.getContext('2d');
+let pathPoints = [];
+let homeBase = null;        // {x, y} — first recorded position
+let windstormActive = false;
+
+function drawPath() {
+  const W = pathCanvas.width, H = pathCanvas.height;
+  pathCtx.clearRect(0, 0, W, H);
+
+  // Grid
+  pathCtx.strokeStyle = 'rgba(245,158,11,0.07)';
+  pathCtx.lineWidth = 0.5;
+  for (let x = 0; x <= W; x += 40) {
+    pathCtx.beginPath(); pathCtx.moveTo(x, 0); pathCtx.lineTo(x, H); pathCtx.stroke();
+  }
+  for (let y = 0; y <= H; y += 40) {
+    pathCtx.beginPath(); pathCtx.moveTo(0, y); pathCtx.lineTo(W, y); pathCtx.stroke();
+  }
+  // Axes
+  pathCtx.strokeStyle = 'rgba(245,158,11,0.2)';
+  pathCtx.lineWidth = 1;
+  pathCtx.beginPath(); pathCtx.moveTo(W/2,0); pathCtx.lineTo(W/2,H); pathCtx.stroke();
+  pathCtx.beginPath(); pathCtx.moveTo(0,H/2); pathCtx.lineTo(W,H/2); pathCtx.stroke();
+
+  if (pathPoints.length === 0) return;
+
+  // Calculate bounds — include homeBase in bounds calculation
+  let allPts = [...pathPoints];
+  if (homeBase) allPts.push({...homeBase, heading:0});
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  allPts.forEach(p => {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  });
+  const rangeX = Math.max(maxX - minX, 10);
+  const rangeY = Math.max(maxY - minY, 10);
+  const pad = 44;
+  const scaleX = (W - pad*2) / rangeX;
+  const scaleY = (H - pad*2) / rangeY;
+  const scale = Math.min(scaleX, scaleY);
+
+  function toCanvas(x, y) {
+    return {
+      cx: pad + (x - minX) * scale + (W - pad*2 - rangeX*scale)/2,
+      cy: H - pad - (y - minY) * scale - (H - pad*2 - rangeY*scale)/2
+    };
+  }
+
+  // HOME BASE marker
+  if (homeBase) {
+    const hb = toCanvas(homeBase.x, homeBase.y);
+    // Pulse ring
+    pathCtx.strokeStyle = 'rgba(34,197,94,0.2)';
+    pathCtx.lineWidth = 1;
+    pathCtx.beginPath(); pathCtx.arc(hb.cx, hb.cy, 22, 0, Math.PI*2); pathCtx.stroke();
+    pathCtx.strokeStyle = 'rgba(34,197,94,0.4)';
+    pathCtx.beginPath(); pathCtx.arc(hb.cx, hb.cy, 14, 0, Math.PI*2); pathCtx.stroke();
+    // Cross
+    pathCtx.strokeStyle = '#22c55e';
+    pathCtx.lineWidth = 1.5;
+    [[-8,0],[8,0],[0,-8],[0,8]].forEach(([dx,dy], i) => {
+      if (i % 2 === 0) pathCtx.beginPath();
+      i % 2 === 0 ? pathCtx.moveTo(hb.cx+dx, hb.cy+dy) : null;
+      i % 2 === 1 ? (pathCtx.lineTo(hb.cx+dx, hb.cy+dy), pathCtx.stroke()) : null;
+    });
+    pathCtx.beginPath(); pathCtx.moveTo(hb.cx-8, hb.cy); pathCtx.lineTo(hb.cx+8, hb.cy); pathCtx.stroke();
+    pathCtx.beginPath(); pathCtx.moveTo(hb.cx, hb.cy-8); pathCtx.lineTo(hb.cx, hb.cy+8); pathCtx.stroke();
+    pathCtx.fillStyle = '#22c55e';
+    pathCtx.font = '9px Share Tech Mono';
+    pathCtx.fillText('HOME BASE', hb.cx + 12, hb.cy + 4);
+  }
+
+  if (pathPoints.length < 1) return;
+
+  // Trail
+  pathCtx.lineWidth = 1.5;
+  for (let i = 1; i < pathPoints.length; i++) {
+    const a = toCanvas(pathPoints[i-1].x, pathPoints[i-1].y);
+    const b = toCanvas(pathPoints[i].x, pathPoints[i].y);
+    const alpha = 0.2 + 0.8 * (i / pathPoints.length);
+    pathCtx.strokeStyle = windstormActive
+      ? `rgba(239,68,68,${alpha * 0.5})`
+      : `rgba(245,158,11,${alpha})`;
+    pathCtx.beginPath();
+    pathCtx.moveTo(a.cx, a.cy);
+    pathCtx.lineTo(b.cx, b.cy);
+    pathCtx.stroke();
+  }
+
+  // WINDSTORM: dashed return line from current pos to home base
+  if (windstormActive && homeBase && pathPoints.length > 0) {
+    const last = toCanvas(pathPoints[pathPoints.length-1].x, pathPoints[pathPoints.length-1].y);
+    const hb   = toCanvas(homeBase.x, homeBase.y);
+    pathCtx.setLineDash([6, 4]);
+    pathCtx.strokeStyle = 'rgba(239,68,68,0.7)';
+    pathCtx.lineWidth = 1.5;
+    pathCtx.beginPath();
+    pathCtx.moveTo(last.cx, last.cy);
+    pathCtx.lineTo(hb.cx, hb.cy);
+    pathCtx.stroke();
+    pathCtx.setLineDash([]);
+    // Arrow at home end
+    const angle = Math.atan2(hb.cy - last.cy, hb.cx - last.cx);
+    pathCtx.fillStyle = '#ef4444';
+    pathCtx.beginPath();
+    pathCtx.moveTo(hb.cx, hb.cy);
+    pathCtx.lineTo(hb.cx - 10*Math.cos(angle-0.4), hb.cy - 10*Math.sin(angle-0.4));
+    pathCtx.lineTo(hb.cx - 10*Math.cos(angle+0.4), hb.cy - 10*Math.sin(angle+0.4));
+    pathCtx.closePath();
+    pathCtx.fill();
+  }
+
+  // Rover (latest)
+  const last = toCanvas(pathPoints[pathPoints.length-1].x, pathPoints[pathPoints.length-1].y);
+  drawRover(last.cx, last.cy, pathPoints[pathPoints.length-1].heading, windstormActive);
+}
+
+function drawRover(cx, cy, heading, alert=false) {
+  const col = alert ? '#ef4444' : '#f59e0b';
+  pathCtx.save();
+  pathCtx.translate(cx, cy);
+  pathCtx.rotate((heading - 90) * Math.PI / 180);
+
+  // Body
+  pathCtx.fillStyle = alert ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)';
+  pathCtx.strokeStyle = col;
+  pathCtx.lineWidth = 1.5;
+  pathCtx.fillRect(-8, -10, 16, 20);
+  pathCtx.strokeRect(-8, -10, 16, 20);
+
+  // Direction arrow
+  pathCtx.fillStyle = col;
+  pathCtx.beginPath();
+  pathCtx.moveTo(0, -14);
+  pathCtx.lineTo(-4, -8);
+  pathCtx.lineTo(4, -8);
+  pathCtx.closePath();
+  pathCtx.fill();
+
+  // Wheels
+  pathCtx.fillStyle = col;
+  [[-10,-8],[-10,4],[8,-8],[8,4]].forEach(([wx,wy]) => {
+    pathCtx.fillRect(wx, wy, 4, 6);
+  });
+
+  pathCtx.restore();
+
+  // Glow
+  pathCtx.shadowColor = col;
+  pathCtx.shadowBlur = 10;
+  pathCtx.strokeStyle = alert ? 'rgba(239,68,68,0.4)' : 'rgba(245,158,11,0.4)';
+  pathCtx.lineWidth = 1;
+  pathCtx.beginPath(); pathCtx.arc(cx, cy, 18, 0, Math.PI*2); pathCtx.stroke();
+  pathCtx.shadowBlur = 0;
+}
+
+// ─── EVENTS ───────────────────────────────────────────────────────────
+const EVENT_META = {
+  floor_change:  { icon: '🟦', label: 'FLOOR CHANGE',   cls: 'floor_change'  },
+  probe_reading: { icon: '🟢', label: 'SOIL PROBE',     cls: 'probe_reading' },
+  mode_change:   { icon: '🟡', label: 'MODE CHANGE',    cls: 'mode_change'   },
+  sound_alert:   { icon: '🔴', label: 'WINDSTORM ALERT',cls: 'sound_alert'   },
+};
+
+function updateEvents(events) {
+  if (!events || events.length === 0) return;
+  const sorted = [...events].sort((a,b) => b.timestamp - a.timestamp);
+
+  // Check for any sound_alert
+  const hasAlert = sorted.some(e => e.event === 'sound_alert');
+  if (hasAlert !== windstormActive) {
+    windstormActive = hasAlert;
+    const banner = document.getElementById('windstorm-banner');
+    banner.style.display = hasAlert ? 'flex' : 'none';
+    if (hasAlert) {
+      const latest = sorted.find(e => e.event === 'sound_alert');
+      document.getElementById('alert-time').textContent = formatTs(latest.timestamp);
+    }
+    drawPath(); // redraw with alert color
+  }
+
+  const feed = document.getElementById('events-feed');
+  feed.innerHTML = sorted.slice(0, 30).map(e => {
+    const meta = EVENT_META[e.event] || { icon: '⬜', label: e.event?.toUpperCase(), cls: '' };
+    const details = e.details ? Object.entries(e.details).map(([k,v]) => `${k}: ${v}`).join(' · ') : '';
+    return `
+      <div class="ev-row ${meta.cls}">
+        <div class="ev-icon">${meta.icon}</div>
+        <div class="ev-body">
+          <div class="ev-type ${meta.cls}">${meta.label}</div>
+          ${details ? `<div class="ev-details">${details}</div>` : ''}
+        </div>
+        <div class="ev-ts">${formatTs(e.timestamp)}</div>
+      </div>`;
+  }).join('');
+}
+
+// ─── DATA STATE ───────────────────────────────────────────────────────
+let allReadings = [];
+let startTime = Date.now();
+
+function formatTs(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('en-US', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function flashEl(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+}
+
+function setVal(id, val, flash=true) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.textContent != String(val)) {
+    el.textContent = val;
+    if (flash) flashEl(id);
+  }
+}
+
+function updateDashboard(readings) {
+  if (!readings || readings.length === 0) return;
+
+  allReadings = readings.sort((a,b) => a.timestamp - b.timestamp);
+
+  // Set home base from first reading that has a position
+  if (!homeBase) {
+    const first = allReadings.find(r => r.position);
+    if (first) homeBase = { x: first.position.x ?? 0, y: first.position.y ?? 0 };
+  }
+  const latest = allReadings[allReadings.length - 1];
+
+  // Header
+  setVal('h-readings', allReadings.length, false);
+  setVal('h-lastping', formatTs(latest.timestamp), false);
+
+  // Ticker
+  setVal('t-temp', `${latest.temperature}°C`, false);
+  setVal('t-hum', `${latest.humidity}%`, false);
+  setVal('t-soil', latest.soil_moisture, false);
+  setVal('t-sound', latest.sound_level, false);
+  setVal('t-ultra', `${latest.ultrasonic}cm`, false);
+  setVal('t-pos', `(${latest.position?.x ?? 0}, ${latest.position?.y ?? 0})`, false);
+  setVal('t-floor', latest.floor_type?.toUpperCase(), false);
+  setVal('t-mode', latest.mode?.toUpperCase(), false);
+
+  // Sidebar
+  setVal('s-floor', (latest.floor_type || 'UNKNOWN').toUpperCase());
+  setVal('s-temp', latest.temperature !== undefined ? `${latest.temperature}` : '—');
+  setVal('s-hum', latest.humidity !== undefined ? `${latest.humidity}` : '—');
+  setVal('s-soil', latest.soil_moisture !== undefined ? `${latest.soil_moisture}` : '—');
+  setVal('s-ultra', latest.ultrasonic !== undefined ? `${latest.ultrasonic}` : '—');
+  setVal('s-sound', latest.sound_level !== undefined ? `${latest.sound_level}` : '—');
+
+  // Bars
+  const tempPct = Math.min(100, Math.max(0, ((latest.temperature || 0) / 60) * 100));
+  const humPct  = Math.min(100, latest.humidity || 0);
+  const soilPct = Math.min(100, ((latest.soil_moisture || 0) / 4095) * 100);
+  document.getElementById('bar-temp').style.width = tempPct + '%';
+  document.getElementById('bar-hum').style.width = humPct + '%';
+  document.getElementById('bar-soil').style.width = soilPct + '%';
+
+  // Heading / compass
+  const heading = latest.position?.heading ?? 0;
+  setVal('s-heading', heading);
+  document.getElementById('compass-needle').style.transform =
+    `translateX(-50%) translateY(-100%) rotate(${heading}deg)`;
+
+  // Mode badge
+  const modeBadge = document.getElementById('s-mode-badge');
+  const modeText  = document.getElementById('s-mode-text');
+  const mode = (latest.mode || 'idle').toLowerCase();
+  modeBadge.className = `mode-badge ${mode}`;
+  modeText.textContent = mode.toUpperCase();
+
+  // Rebuild charts from all readings (avoid duplicate pushes — just reset)
+  const labels = allReadings.map(r => formatTs(r.timestamp));
+  const temps  = allReadings.map(r => r.temperature ?? null);
+  const hums   = allReadings.map(r => r.humidity ?? null);
+  const sounds = allReadings.map(r => r.sound_level ?? null);
+  const soils  = allReadings.map(r => r.soil_moisture ?? null);
+
+  function setChart(chart, lbl, ...datasets) {
+    chart.data.labels = lbl;
+    chart.data.datasets.forEach((ds, i) => ds.data = datasets[i]);
+    chart.update('none');
+  }
+  setChart(chartTemp,  labels, temps);
+  setChart(chartHum,   labels, hums);
+  setChart(chartSound, labels, sounds);
+  setChart(chartSoil,  labels, soils);
+
+  // Path map
+  pathPoints = allReadings
+    .filter(r => r.position)
+    .map(r => ({ x: r.position.x ?? 0, y: r.position.y ?? 0, heading: r.position.heading ?? 0 }));
+  drawPath();
+
+  // Table (last 20)
+  const tbody = document.getElementById('readings-tbody');
+  const recent = [...allReadings].reverse().slice(0, 20);
+  tbody.innerHTML = recent.map(r => `
+    <tr>
+      <td class="ts">${formatTs(r.timestamp)}</td>
+      <td class="floor">${(r.floor_type||'?').toUpperCase()}</td>
+      <td class="mode-t">${(r.mode||'?').toUpperCase()}</td>
+      <td>${r.temperature ?? '—'}</td>
+      <td>${r.humidity ?? '—'}</td>
+      <td>${r.soil_moisture ?? '—'}</td>
+      <td>${r.sound_level ?? '—'}</td>
+      <td>${r.ultrasonic ?? '—'}</td>
+      <td>${r.position?.x ?? '—'}</td>
+      <td>${r.position?.y ?? '—'}</td>
+      <td>${r.position?.heading ?? '—'}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── UPTIME COUNTER ───────────────────────────────────────────────────
+setInterval(() => {
+  const s = Math.floor((Date.now() - startTime) / 1000);
+  const h = String(Math.floor(s/3600)).padStart(2,'0');
+  const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+  const sec = String(s%60).padStart(2,'0');
+  const el = document.getElementById('h-uptime');
+  if (el) el.textContent = `${h}:${m}:${sec}`;
+}, 1000);
+
+// ─── FIREBASE CONNECT ─────────────────────────────────────────────────
+function initFirebase(cfg) {
+  try {
+    const app = firebase.initializeApp(cfg);
+    const db  = firebase.database(app);
+    document.getElementById('config-overlay').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('link-dot').className = 'status-dot offline';
+    db.ref('readings').on('value', snap => {
+      const data = snap.val();
+      if (!data) return;
+      document.getElementById('link-dot').className = 'status-dot';
+      updateDashboard(Object.values(data));
+    }, err => {
+      document.getElementById('link-dot').className = 'status-dot offline';
+      console.error('Firebase error:', err);
+    });
+
+    db.ref('events').on('value', snap => {
+      const data = snap.val();
+      if (!data) return;
+      updateEvents(Object.values(data));
+    });
+
+    db.ref('ultrasonic_readings').on('value', snap => {
+      const data = snap.val();
+      if (!data) return;
+      updateCalibration(data);
+    });
+
+    db.ref('sound_experiment').on('value', snap => {
+      _soundRoverData = snap.val();
+      tryRenderSound();
+    });
+
+    db.ref('sound_experiment_laptop').on('value', snap => {
+      _soundLaptopData = snap.val();
+      tryRenderSound();
+    });
+  } catch (e) {
+    const errEl = document.getElementById('config-error');
+    if (errEl) errEl.textContent = 'ERROR: ' + e.message;
+  }
+}
+
+function connectFirebase() {
+  // Use window.FIREBASE_CONFIG from config.js if available, else read form fields
+  const cfg = window.FIREBASE_CONFIG || (() => {
+    const apiKey        = document.getElementById('fb-apikey').value.trim();
+    const databaseURL   = document.getElementById('fb-databaseurl').value.trim();
+    const projectId     = document.getElementById('fb-projectid').value.trim();
+    const appId         = document.getElementById('fb-appid').value.trim();
+    const authDomain    = document.getElementById('fb-authdomain').value.trim() || `${projectId}.firebaseapp.com`;
+    const storageBucket = document.getElementById('fb-storagebucket').value.trim() || `${projectId}.appspot.com`;
+    if (!apiKey || !databaseURL || !projectId || !appId) {
+      document.getElementById('config-error').textContent = 'ERROR: apiKey, databaseURL, projectId and appId are required.';
+      return null;
+    }
+    return { apiKey, authDomain, databaseURL, projectId, storageBucket, appId };
+  })();
+  if (cfg) initFirebase(cfg);
+}
+
+// Auto-connect on load if config.js was found
+window.addEventListener('DOMContentLoaded', () => {
+  if (window.FIREBASE_CONFIG) {
+    const msg = document.getElementById('autoconnect-msg');
+    const btn = document.getElementById('connect-btn');
+    if (msg) msg.style.display = 'block';
+    if (btn) btn.style.display = 'none';
+    setTimeout(() => initFirebase(window.FIREBASE_CONFIG), 800);
+  }
+});
+
+// ─── DEMO MODE ────────────────────────────────────────────────────────
+function loadDemo() {
+  document.getElementById('config-overlay').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('link-dot').className = 'status-dot';
+
+  const floorTypes = ['wood','carpet','tile','concrete','unknown'];
+  const modes = ['idle','scanning','active','charging'];
+  const baseTime = Date.now()/1000 - 1000;
+
+  let demoReadings = Array.from({length: 20}, (_, i) => ({
+    floor_type: floorTypes[Math.floor(Math.random()*floorTypes.length)],
+    humidity: 40 + Math.round(Math.random()*40),
+    mode: modes[Math.floor(Math.random()*modes.length)],
+    position: {
+      heading: Math.round(Math.random()*360),
+      x: Math.round(Math.sin(i*0.4)*i*3),
+      y: Math.round(Math.cos(i*0.3)*i*3),
+    },
+    soil_moisture: Math.round(800 + Math.random()*3000),
+    sound_level: Math.round(100 + Math.random()*500),
+    temperature: parseFloat((20 + Math.random()*20).toFixed(1)),
+    timestamp: baseTime + i*50,
+    ultrasonic: parseFloat((5 + Math.random()*80).toFixed(2)),
+  }));
+
+  updateDashboard(demoReadings);
+
+  // Seed demo events
+  let demoEvents = [
+    { event: 'floor_change',  timestamp: baseTime + 50,  details: { from: 'unknown', to: 'wood' } },
+    { event: 'probe_reading', timestamp: baseTime + 55,  details: { soil_moisture: 1203 } },
+    { event: 'floor_change',  timestamp: baseTime + 200, details: { from: 'wood', to: 'carpet' } },
+    { event: 'probe_reading', timestamp: baseTime + 205, details: { soil_moisture: 2780 } },
+    { event: 'mode_change',   timestamp: baseTime + 400, details: { from: 'idle', to: 'scanning' } },
+  ];
+  updateEvents(demoEvents);
+
+  // After 12s in demo, trigger a windstorm alert
+  setTimeout(() => {
+    demoEvents = [{ event: 'sound_alert', timestamp: Date.now()/1000, details: { sound_level: 892, threshold: 600 } }, ...demoEvents];
+    updateEvents(demoEvents);
+  }, 12000);
+
+  // Seed demo calibration
+  updateCalibration({
+    calibration_10cm: { actual_cm: 10, avg_reading: 10.70, error_cm: 0.70, error_pct: 7,  reading_1: 10.71, reading_2: 10.71, reading_3: 10.67, timestamp: Date.now()/1000 },
+    calibration_20cm: { actual_cm: 20, avg_reading: 20.45, error_cm: 0.45, error_pct: 2.3,reading_1: 20.51, reading_2: 20.41, reading_3: 20.43, timestamp: Date.now()/1000 },
+    calibration_30cm: { actual_cm: 30, avg_reading: 30.82, error_cm: 0.82, error_pct: 2.7,reading_1: 30.90, reading_2: 30.75, reading_3: 30.81, timestamp: Date.now()/1000 },
+    calibration_50cm: { actual_cm: 50, avg_reading: 51.60, error_cm: 1.60, error_pct: 3.2,reading_1: 51.70, reading_2: 51.55, reading_3: 51.55, timestamp: Date.now()/1000 },
+    calibration_75cm: { actual_cm: 75, avg_reading: 77.30, error_cm: 2.30, error_pct: 3.1,reading_1: 77.40, reading_2: 77.25, reading_3: 77.25, timestamp: Date.now()/1000 },
+  });
+
+  // Seed demo sound experiment (trials 1–7)
+  const demoRover  = {};
+  const demoLaptop = {};
+  const roverBase  = [280, 310, 450, 620, 580, 390, 320];
+  const laptopBase = [-72, -68, -55, -44, -48, -61, -67];
+  const t0 = Date.now()/1000 - 200;
+  for (let i = 1; i <= 7; i++) {
+    demoRover[`r_${i}`]  = { rover_sound: roverBase[i-1] + Math.round((Math.random()-0.5)*10), trial: i, timestamp: t0 + i*20 };
+    demoLaptop[`l_${i}`] = { laptop_db: parseFloat((laptopBase[i-1] + (Math.random()-0.5)*2).toFixed(2)),   trial: i, timestamp: t0 + i*20 + 1 };
+  }
+  _soundRoverData  = demoRover;
+  _soundLaptopData = demoLaptop;
+  tryRenderSound();
+
+  // Live-add a new reading every 3s
+  let tick = 20;
+  setInterval(() => {
+    const last = demoReadings[demoReadings.length-1];
+    const angle = tick * 0.4;
+    demoReadings.push({
+      floor_type: floorTypes[Math.floor(Math.random()*floorTypes.length)],
+      humidity: Math.max(0, Math.min(100, last.humidity + (Math.random()-0.5)*5)),
+      mode: Math.random() < 0.1 ? modes[Math.floor(Math.random()*modes.length)] : last.mode,
+      position: {
+        heading: Math.round((last.position.heading + (Math.random()-0.3)*30 + 360) % 360),
+        x: Math.round(Math.sin(angle)*tick*3),
+        y: Math.round(Math.cos(angle*0.7)*tick*3),
+      },
+      soil_moisture: Math.max(0, Math.round(last.soil_moisture + (Math.random()-0.5)*200)),
+      sound_level: Math.round(100 + Math.random()*500),
+      temperature: parseFloat(Math.max(0, last.temperature + (Math.random()-0.5)*2).toFixed(1)),
+      timestamp: last.timestamp + 3,
+      ultrasonic: parseFloat(Math.max(0, last.ultrasonic + (Math.random()-0.5)*10).toFixed(2)),
+    });
+    tick++;
+    updateDashboard(demoReadings);
+  }, 3000);
+}
+
+// ─── CALIBRATION ─────────────────────────────────────────────────────
+let calibScatterChart = null;
+let calibErrorChart   = null;
+
+function initCalibCharts() {
+  calibScatterChart = new Chart(document.getElementById('chart-calib-scatter'), {
+    type: 'scatter',
+    data: { datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 600 },
+      scales: {
+        x: {
+          title: { display: true, text: 'ACTUAL (CM)', color: '#6b5a3e', font: { size: 9, family: "'Share Tech Mono', monospace" } },
+          ticks: { color: '#6b5a3e', font: { size: 9 } },
+          grid: { color: 'rgba(245,158,11,0.06)' },
+          min: 0,
+        },
+        y: {
+          title: { display: true, text: 'MEASURED (CM)', color: '#6b5a3e', font: { size: 9, family: "'Share Tech Mono', monospace" } },
+          ticks: { color: '#6b5a3e', font: { size: 9 } },
+          grid: { color: 'rgba(245,158,11,0.06)' },
+          min: 0,
+        }
+      },
+      plugins: {
+        legend: { display: true, labels: { color: '#6b5a3e', font: { size: 9 }, boxWidth: 10, padding: 12 } },
+        tooltip: {
+          backgroundColor: '#0d1117', borderColor: 'rgba(245,158,11,0.3)', borderWidth: 1,
+          titleColor: '#f59e0b', bodyColor: '#e2c98a',
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.label === 'Individual Readings') return `  measured: ${ctx.parsed.y} cm @ actual ${ctx.parsed.x} cm`;
+              if (ctx.dataset.label === 'Avg Reading') return `  avg: ${ctx.parsed.y} cm @ actual ${ctx.parsed.x} cm`;
+              return null;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  calibErrorChart = new Chart(document.getElementById('chart-calib-error'), {
+    type: 'bar',
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 600 },
+      scales: {
+        x: { ticks: { color: '#6b5a3e', font: { size: 9 } }, grid: { color: 'rgba(245,158,11,0.06)' } },
+        y:  { ticks: { color: '#38bdf8', font: { size: 9 } }, grid: { color: 'rgba(56,189,248,0.06)' }, position: 'left',
+              title: { display: true, text: 'ERROR CM', color: '#38bdf8', font: { size: 9 } } },
+        y2: { ticks: { color: 'rgba(168,85,247,0.8)', font: { size: 9 } }, grid: { display: false }, position: 'right',
+              title: { display: true, text: 'ERROR %', color: 'rgba(168,85,247,0.8)', font: { size: 9 } } }
+      },
+      plugins: {
+        legend: { display: true, labels: { color: '#6b5a3e', font: { size: 9 }, boxWidth: 10, padding: 12 } },
+        tooltip: { backgroundColor: '#0d1117', borderColor: 'rgba(245,158,11,0.3)', borderWidth: 1, titleColor: '#f59e0b', bodyColor: '#e2c98a' }
+      }
+    }
+  });
+}
+initCalibCharts();
+
+// Linear regression helper
+function linReg(pts) {
+  const n = pts.length;
+  if (n < 2) return { m: 1, b: 0 };
+  const sumX  = pts.reduce((s,p) => s + p.x, 0);
+  const sumY  = pts.reduce((s,p) => s + p.y, 0);
+  const sumXY = pts.reduce((s,p) => s + p.x * p.y, 0);
+  const sumX2 = pts.reduce((s,p) => s + p.x * p.x, 0);
+  const m = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  const b = (sumY - m * sumX) / n;
+  return { m, b };
+}
+
+function rSquared(pts, m, b) {
+  const mean = pts.reduce((s,p) => s + p.y, 0) / pts.length;
+  const ssTot = pts.reduce((s,p) => s + Math.pow(p.y - mean, 2), 0);
+  const ssRes = pts.reduce((s,p) => s + Math.pow(p.y - (m*p.x + b), 2), 0);
+  return ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+}
+
+function updateCalibration(calibData) {
+  // calibData: object keyed by calibration_Xcm
+  const entries = Object.entries(calibData)
+    .map(([key, val]) => ({ key, ...val }))
+    .sort((a, b) => (a.actual_cm ?? 0) - (b.actual_cm ?? 0));
+
+  if (entries.length === 0) return;
+
+  // Gather individual readings per entry
+  const avgPts = entries.map(e => ({ x: e.actual_cm, y: e.avg_reading }));
+
+  const indivPts = [];
+  entries.forEach(e => {
+    Object.entries(e).forEach(([k, v]) => {
+      if (k.startsWith('reading_') && typeof v === 'number') {
+        indivPts.push({ x: e.actual_cm, y: v });
+      }
+    });
+  });
+
+  // Perfect diagonal
+  const maxVal = Math.max(...entries.map(e => Math.max(e.actual_cm, e.avg_reading))) * 1.1;
+  const perfectLine = [{ x: 0, y: 0 }, { x: maxVal, y: maxVal }];
+
+  // Line of best fit through avg points
+  const { m, b } = linReg(avgPts);
+  const r2 = rSquared(avgPts, m, b);
+  const bestFit = [{ x: 0, y: b }, { x: maxVal, y: m * maxVal + b }];
+
+  calibScatterChart.data.datasets = [
+    {
+      label: 'Perfect (Actual = Measured)',
+      data: perfectLine, type: 'line',
+      borderColor: 'rgba(245,158,11,0.3)', borderWidth: 1.5,
+      borderDash: [4, 4], pointRadius: 0, fill: false, tension: 0,
+    },
+    {
+      label: 'Individual Readings',
+      data: indivPts,
+      backgroundColor: 'rgba(56,189,248,0.5)', borderColor: 'rgba(56,189,248,0.8)',
+      pointRadius: 4, pointHoverRadius: 6,
+    },
+    {
+      label: 'Avg Reading',
+      data: avgPts,
+      backgroundColor: '#f59e0b', borderColor: '#f59e0b',
+      pointRadius: 6, pointHoverRadius: 8, pointStyle: 'rectRot',
+    },
+  ];
+  calibScatterChart.options.scales.x.max = maxVal;
+  calibScatterChart.options.scales.y.max = maxVal;
+  calibScatterChart.update();
+
+  // Error bar chart
+  calibErrorChart.data.labels = entries.map(e => `${e.actual_cm}cm`);
+  calibErrorChart.data.datasets = [
+    {
+      label: 'Error (cm)',
+      data: entries.map(e => e.error_cm),
+      backgroundColor: entries.map(e => e.error_cm > 5 ? 'rgba(239,68,68,0.6)' : 'rgba(56,189,248,0.6)'),
+      borderColor:     entries.map(e => e.error_cm > 5 ? '#ef4444' : '#38bdf8'),
+      borderWidth: 1, yAxisID: 'y',
+    },
+    {
+      label: 'Error (%)',
+      data: entries.map(e => e.error_pct),
+      backgroundColor: 'rgba(168,85,247,0.2)',
+      borderColor: 'rgba(168,85,247,0.8)',
+      borderWidth: 1.5, type: 'line', yAxisID: 'y2',
+      pointRadius: 4, tension: 0.3, fill: false,
+    }
+  ];
+  calibErrorChart.update();
+
+  // Table
+  const tbody = document.getElementById('calib-tbody');
+  tbody.innerHTML = entries.map(e => {
+    const readings = Object.entries(e).filter(([k]) => k.startsWith('reading_')).map(([,v]) => v);
+    const spread = readings.length > 1 ? (Math.max(...readings) - Math.min(...readings)).toFixed(2) : '—';
+    const rating = e.error_pct <= 3 ? '<span style="color:#22c55e">EXCELLENT</span>'
+                 : e.error_pct <= 7 ? '<span style="color:#f59e0b">GOOD</span>'
+                 : e.error_pct <= 15 ? '<span style="color:#fb923c">FAIR</span>'
+                 : '<span style="color:#ef4444">POOR</span>';
+    return `<tr>
+      <td style="color:var(--amber)">${e.actual_cm}</td>
+      <td>${e.avg_reading}</td>
+      <td style="color:${e.error_cm > 5 ? '#ef4444' : '#38bdf8'}">${e.error_cm}</td>
+      <td style="color:${e.error_pct > 10 ? '#ef4444' : 'var(--text)'}">${e.error_pct}%</td>
+      <td style="color:var(--text-dim)">${readings.join(', ')}</td>
+      <td>${spread} cm</td>
+      <td>${rating}</td>
+    </tr>`;
+  }).join('');
+
+  // Summary stats
+  const avgErr    = (entries.reduce((s,e) => s + e.error_cm, 0) / entries.length).toFixed(2);
+  const avgErrPct = (entries.reduce((s,e) => s + e.error_pct, 0) / entries.length).toFixed(1);
+  const maxErr    = Math.max(...entries.map(e => e.error_cm)).toFixed(2);
+  document.getElementById('calib-stats').innerHTML = [
+    ['AVG ERROR', `${avgErr} cm`],
+    ['AVG ERROR %', `${avgErrPct}%`],
+    ['MAX ERROR', `${maxErr} cm`],
+    ['SAMPLES', entries.length],
+  ].map(([label, val]) => `
+    <div style="display:flex;flex-direction:column;gap:4px;padding:10px 14px;border:1px solid var(--border);background:var(--surface2);min-width:90px;">
+      <div style="font-size:9px;letter-spacing:2px;color:var(--text-dim)">${label}</div>
+      <div style="font-family:'Orbitron',monospace;font-size:16px;color:var(--amber)">${val}</div>
+    </div>`).join('');
+}
+
+// ─── SOUND EXPERIMENT ────────────────────────────────────────────────
+let soundExpChart   = null;
+let soundScatChart  = null;
+
+function initSoundCharts() {
+  soundExpChart = new Chart(document.getElementById('chart-sound-exp'), {
+    type: 'line',
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 500 },
+      scales: {
+        x: { ticks: { color: '#6b5a3e', font: { size: 9 } }, grid: { color: 'rgba(245,158,11,0.06)' },
+             title: { display: true, text: 'TRIAL', color: '#6b5a3e', font: { size: 9 } } },
+        y:  { position: 'left',  ticks: { color: '#f59e0b', font: { size: 9 } }, grid: { color: 'rgba(245,158,11,0.06)' },
+              title: { display: true, text: 'ROVER ADC', color: '#f59e0b', font: { size: 9 } } },
+        y2: { position: 'right', ticks: { color: '#38bdf8', font: { size: 9 } }, grid: { display: false },
+              title: { display: true, text: 'LAPTOP dB', color: '#38bdf8', font: { size: 9 } } }
+      },
+      plugins: {
+        legend: { display: true, labels: { color: '#6b5a3e', font: { size: 9 }, boxWidth: 10, padding: 12 } },
+        tooltip: { backgroundColor: '#0d1117', borderColor: 'rgba(245,158,11,0.3)', borderWidth: 1, titleColor: '#f59e0b', bodyColor: '#e2c98a' }
+      }
+    }
+  });
+
+  soundScatChart = new Chart(document.getElementById('chart-sound-scatter'), {
+    type: 'scatter',
+    data: { datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 500 },
+      scales: {
+        x: { ticks: { color: '#6b5a3e', font: { size: 9 } }, grid: { color: 'rgba(245,158,11,0.06)' },
+             title: { display: true, text: 'ROVER ADC', color: '#6b5a3e', font: { size: 9 } } },
+        y: { ticks: { color: '#6b5a3e', font: { size: 9 } }, grid: { color: 'rgba(245,158,11,0.06)' },
+             title: { display: true, text: 'LAPTOP dB', color: '#6b5a3e', font: { size: 9 } } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d1117', borderColor: 'rgba(245,158,11,0.3)', borderWidth: 1,
+          titleColor: '#f59e0b', bodyColor: '#e2c98a',
+          callbacks: { label: ctx => `  Trial ${ctx.raw.trial} — rover: ${ctx.parsed.x}, laptop: ${ctx.parsed.y} dB` }
+        }
+      }
+    }
+  });
+}
+initSoundCharts();
+
+function updateSoundExperiment(roverData, laptopData) {
+  // Filter trials 1–7 only
+  const roverTrials = Object.values(roverData || {})
+    .filter(d => d.trial >= 1 && d.trial <= 7)
+    .sort((a, b) => a.trial - b.trial);
+  const laptopTrials = Object.values(laptopData || {})
+    .filter(d => d.trial >= 1 && d.trial <= 7)
+    .sort((a, b) => a.trial - b.trial);
+
+  if (roverTrials.length === 0 && laptopTrials.length === 0) return;
+
+  // Build trial-indexed maps
+  const roverMap  = {};  roverTrials.forEach(d  => roverMap[d.trial]  = d);
+  const laptopMap = {};  laptopTrials.forEach(d => laptopMap[d.trial] = d);
+  const allTrials = [...new Set([...Object.keys(roverMap), ...Object.keys(laptopMap)].map(Number))].sort((a,b)=>a-b);
+  const labels = allTrials.map(t => `T${t}`);
+
+  const roverVals  = allTrials.map(t => roverMap[t]?.rover_sound ?? null);
+  const laptopVals = allTrials.map(t => laptopMap[t]?.laptop_db  ?? null);
+
+  // Dual-axis line chart
+  soundExpChart.data.labels = labels;
+  soundExpChart.data.datasets = [
+    {
+      label: 'Rover ADC',
+      data: roverVals, yAxisID: 'y',
+      borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)',
+      borderWidth: 2, pointRadius: 5, pointBackgroundColor: '#f59e0b',
+      tension: 0.3, fill: true,
+    },
+    {
+      label: 'Laptop dB',
+      data: laptopVals, yAxisID: 'y2',
+      borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.08)',
+      borderWidth: 2, pointRadius: 5, pointBackgroundColor: '#38bdf8',
+      tension: 0.3, fill: true,
+    }
+  ];
+  soundExpChart.update();
+
+  // Scatter: paired trials only
+  const pairedPts = allTrials
+    .filter(t => roverMap[t] && laptopMap[t])
+    .map(t => ({ x: roverMap[t].rover_sound, y: laptopMap[t].laptop_db, trial: t }));
+
+  soundScatChart.data.datasets = [{
+    data: pairedPts,
+    backgroundColor: pairedPts.map((_, i) => `hsla(${200 + i*20}, 80%, 65%, 0.8)`),
+    borderColor: '#6b5a3e',
+    borderWidth: 1,
+    pointRadius: 7, pointHoverRadius: 9,
+  }];
+  soundScatChart.update();
+
+  // Table
+  const tbody = document.getElementById('sound-tbody');
+  tbody.innerHTML = allTrials.map(t => {
+    const r = roverMap[t];
+    const l = laptopMap[t];
+    // Rough agreement: if both go up/down between consecutive trials = agree
+    const ti = allTrials.indexOf(t);
+    let agree = '—';
+    if (ti > 0 && r && l) {
+      const prevT = allTrials[ti - 1];
+      const pr = roverMap[prevT], pl = laptopMap[prevT];
+      if (pr && pl) {
+        const rDir = r.rover_sound - pr.rover_sound;
+        const lDir = l.laptop_db   - pl.laptop_db;
+        agree = (rDir >= 0) === (lDir >= 0)
+          ? '<span style="color:#22c55e">↑↑ AGREE</span>'
+          : '<span style="color:#ef4444">↑↓ DISAGREE</span>';
+      }
+    }
+    return `<tr>
+      <td style="color:var(--amber);font-family:'Orbitron',monospace">T${t}</td>
+      <td>${r ? r.rover_sound : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td>${l ? l.laptop_db.toFixed(2) : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td class="ts">${r ? formatTs(r.timestamp) : '—'}</td>
+      <td class="ts">${l ? formatTs(l.timestamp) : '—'}</td>
+      <td>${agree}</td>
+    </tr>`;
+  }).join('');
+
+  // Stats
+  const pairedCount = pairedPts.length;
+  const avgRover  = pairedPts.length ? (pairedPts.reduce((s,p) => s + p.x, 0) / pairedPts.length).toFixed(1) : '—';
+  const avgLaptop = pairedPts.length ? (pairedPts.reduce((s,p) => s + p.y, 0) / pairedPts.length).toFixed(2) : '—';
+  const agreements = allTrials.filter((t, i) => {
+    if (i === 0) return false;
+    const r = roverMap[t], l = laptopMap[t];
+    const pr = roverMap[allTrials[i-1]], pl = laptopMap[allTrials[i-1]];
+    if (!r || !l || !pr || !pl) return false;
+    return (r.rover_sound - pr.rover_sound >= 0) === (l.laptop_db - pl.laptop_db >= 0);
+  }).length;
+  const totalPairs = allTrials.filter((t,i) => i > 0 && roverMap[t] && laptopMap[t] && roverMap[allTrials[i-1]] && laptopMap[allTrials[i-1]]).length;
+
+  document.getElementById('sound-stats').innerHTML = [
+    ['TRIALS', `${pairedCount} paired`],
+    ['AVG ROVER ADC', avgRover],
+    ['AVG LAPTOP dB', avgLaptop],
+    ['TREND AGREEMENT', totalPairs ? `${agreements}/${totalPairs}` : '—'],
+  ].map(([label, val]) => `
+    <div style="display:flex;flex-direction:column;gap:4px;padding:10px 14px;border:1px solid var(--border);background:var(--surface2);min-width:110px;">
+      <div style="font-size:9px;letter-spacing:2px;color:var(--text-dim)">${label}</div>
+      <div style="font-family:'Orbitron',monospace;font-size:15px;color:var(--amber)">${val}</div>
+    </div>`).join('');
+}
+
+// Storage for sound experiment data (need both before rendering)
+let _soundRoverData  = null;
+let _soundLaptopData = null;
+function tryRenderSound() {
+  if (_soundRoverData || _soundLaptopData) updateSoundExperiment(_soundRoverData, _soundLaptopData);
+}
+
+// ─── RESIZE PATH CANVAS ───────────────────────────────────────────────
+function resizePath() {
+  const rect = pathCanvas.parentElement.getBoundingClientRect();
+  pathCanvas.width = rect.width || 400;
+  pathCanvas.height = Math.max(200, rect.height - 60);
+  drawPath();
+}
+window.addEventListener('resize', resizePath);
+setTimeout(resizePath, 200);
+</script>
+</body>
+</html>
